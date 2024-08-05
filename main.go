@@ -35,8 +35,6 @@ type JuliaParams struct {
 	MaxIterations int     `json:"maxIterations"`
 	Width         int     `json:"width"`
 	Height        int     `json:"height"`
-	OffsetX       int     `json:"offsetX"`
-	OffsetY       int     `json:"offsetY"`
 }
 
 type TileMessage struct {
@@ -66,9 +64,9 @@ func generateJuliaTile(params JuliaParams, tileX, tileY int) *Tile {
 	c := complex(params.C.Real, params.C.Imag)
 
 	for py := 0; py < TileSize; py++ {
-		y := float64(tileY*TileSize+py)/params.Zoom - float64(params.Height)/(2*params.Zoom) + params.Center.Imag + float64(params.OffsetY)/params.Zoom
+		y := float64(tileY*TileSize+py)/params.Zoom - float64(params.Height)/(2*params.Zoom) + params.Center.Imag
 		for px := 0; px < TileSize; px++ {
-			x := float64(tileX*TileSize+px)/params.Zoom - float64(params.Width)/(2*params.Zoom) + params.Center.Real + float64(params.OffsetX)/params.Zoom
+			x := float64(tileX*TileSize+px)/params.Zoom - float64(params.Width)/(2*params.Zoom) + params.Center.Real
 			z := complex(x, y)
 
 			var i int
@@ -93,10 +91,10 @@ func generateJuliaTile(params JuliaParams, tileX, tileY int) *Tile {
 }
 
 func getTileKey(params JuliaParams, x, y int) string {
-	return fmt.Sprintf("%f,%f,%f,%f,%f,%d,%d,%d,%d,%d,%d,%f,%f",
+	return fmt.Sprintf("%f,%f,%f,%f,%f,%d,%d,%d,%d,%f,%f",
 		params.C.Real, params.C.Imag, params.Center.Real, params.Center.Imag,
 		params.Zoom, params.MaxIterations, params.Width, params.Height,
-		params.OffsetX, params.OffsetY, params.Coloring, float64(x), float64(y))
+		params.Coloring, float64(x), float64(y))
 }
 
 func cleanupCache(params JuliaParams) {
