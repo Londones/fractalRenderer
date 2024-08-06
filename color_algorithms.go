@@ -204,17 +204,17 @@ func ReturnRGBA(coloring int, i int, maxIterations int, z complex128, x int, y i
 		return PsychedelicSwirl(i, maxIterations, z)
 	case 5:
 		return MetallicSheen(i, maxIterations, z)
-	case 7:
+	case 6:
 		return RainbowSpiral(i, maxIterations, z)
-	case 8:
+	case 7:
 		return AutumnLeaves(i, maxIterations, z)
-	case 9:
+	case 8:
 		return OceanDepths(i, maxIterations, z)
-	case 10:
+	case 9:
 		return MoltenLava(i, maxIterations, z)
-	case 12:
+	case 10:
 		return AlternateAlgorithms(i, maxIterations, z, x, y)
-	case 13:
+	case 11:
 		return MixMultipleAlgorithms(i, maxIterations, z)
 	default:
 		return SmoothColorHSV(i, maxIterations, z)

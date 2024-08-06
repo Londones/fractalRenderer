@@ -9,12 +9,11 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
+	"log"
 
-	//"log"
 	"math/cmplx"
 	"net/http"
 
-	//"os"
 	"sort"
 	"sync"
 	"time"
@@ -52,8 +51,8 @@ type Tile struct {
 }
 
 const (
-	TileSize     = 256
-	MaxCacheSize = 1000
+	TileSize     = 128
+	MaxCacheSize = 100
 )
 
 var tileCache = sync.Map{}
@@ -169,7 +168,11 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
 	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		http.Error(w, "Could not open websocket connection", http.StatusBadRequest)
@@ -180,12 +183,14 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	for {
 		_, p, err := conn.ReadMessage()
 		if err != nil {
+			log.Printf("Error reading message: %v", err)
 			return
 		}
 
 		var params JuliaParams
 		err = json.Unmarshal(p, &params)
 		if err != nil {
+			log.Printf("Error unmarshaling JSON: %v", err)
 			return
 		}
 
