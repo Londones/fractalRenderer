@@ -7,16 +7,11 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
 	"image/png"
 	"log"
-
 	"math/cmplx"
 	"net/http"
-
-	"sort"
 	"sync"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -36,132 +31,40 @@ type JuliaParams struct {
 	Height        int     `json:"height"`
 }
 
-type TileMessage struct {
-	X    int     `json:"x"`
-	Y    int     `json:"y"`
-	Zoom float64 `json:"zoom"`
-	Data string  `json:"data"` // base64 encoded PNG
-}
-
-type Tile struct {
-	X, Y     int
-	Zoom     float64
-	Image    image.Image
-	LastUsed time.Time
-}
-
-const (
-	TileSize     = 128
-	MaxCacheSize = 100
-)
-
-var tileCache = sync.Map{}
-var tileCacheMutex sync.Mutex
-
-func generateJuliaTile(params JuliaParams, tileX, tileY int) *Tile {
-	img := image.NewRGBA(image.Rect(0, 0, TileSize, TileSize))
+func generateJuliaSet(params JuliaParams) image.Image {
+	img := image.NewRGBA(image.Rect(0, 0, params.Width, params.Height))
 	c := complex(params.C.Real, params.C.Imag)
 
-	for py := 0; py < TileSize; py++ {
-		y := float64(tileY*TileSize+py)/params.Zoom - float64(params.Height)/(2*params.Zoom) + params.Center.Imag
-		for px := 0; px < TileSize; px++ {
-			x := float64(tileX*TileSize+px)/params.Zoom - float64(params.Width)/(2*params.Zoom) + params.Center.Real
-			z := complex(x, y)
-
-			var i int
-			for i = 0; i < params.MaxIterations; i++ {
-				if cmplx.Abs(z) > 2 {
-					break
-				}
-				z = z*z + c
-			}
-
-			if i < params.MaxIterations {
-
-				rgba := ReturnRGBA(params.Coloring, i, params.MaxIterations, z, px, py)
-
-				img.Set(px, py, rgba)
-			} else {
-				img.Set(px, py, color.Black)
-			}
-		}
-	}
-	return &Tile{X: tileX, Y: tileY, Zoom: params.Zoom, Image: img}
-}
-
-func getTileKey(params JuliaParams, x, y int) string {
-	return fmt.Sprintf("%f,%f,%f,%f,%f,%d,%d,%d,%d,%f,%f",
-		params.C.Real, params.C.Imag, params.Center.Real, params.Center.Imag,
-		params.Zoom, params.MaxIterations, params.Width, params.Height,
-		params.Coloring, float64(x), float64(y))
-}
-
-func cleanupCache(params JuliaParams) {
-	tileCacheMutex.Lock()
-	defer tileCacheMutex.Unlock()
-
-	var tiles []*Tile
-	tileCache.Range(func(_, value interface{}) bool {
-		tiles = append(tiles, value.(*Tile))
-		return true
-	})
-
-	if len(tiles) > MaxCacheSize {
-		// Sort tiles by last used time
-		sort.Slice(tiles, func(i, j int) bool {
-			return tiles[i].LastUsed.Before(tiles[j].LastUsed)
-		})
-
-		// Remove oldest tiles
-		for i := 0; i < len(tiles)-MaxCacheSize; i++ {
-			tileCache.Delete(getTileKey(params, tiles[i].X, tiles[i].Y))
-		}
-	}
-}
-
-func generateJuliaSet(params JuliaParams, modifiedTiles chan<- *Tile) {
-	tilesX := (params.Width + TileSize - 1) / TileSize
-	tilesY := (params.Height + TileSize - 1) / TileSize
-
 	var wg sync.WaitGroup
-	for tileY := 0; tileY < tilesY; tileY++ {
-		for tileX := 0; tileX < tilesX; tileX++ {
-			wg.Add(1)
-			go func(tx, ty int) {
-				defer wg.Done()
-				key := getTileKey(params, tx, ty)
-				if cachedTile, ok := tileCache.Load(key); ok {
-					tile := cachedTile.(*Tile)
-					tile.LastUsed = time.Now()
-					tileCache.Store(key, tile)
-					modifiedTiles <- tile
-				} else {
-					tile := generateJuliaTile(params, tx, ty)
-					tile.LastUsed = time.Now()
-					tileCache.Store(key, tile)
-					modifiedTiles <- tile
+	for py := 0; py < params.Height; py++ {
+		wg.Add(1)
+		go func(y int) {
+			defer wg.Done()
+			for px := 0; px < params.Width; px++ {
+				x := float64(px)/params.Zoom - float64(params.Width)/(2*params.Zoom) + params.Center.Real
+				y := float64(y)/params.Zoom - float64(params.Height)/(2*params.Zoom) + params.Center.Imag
+				z := complex(x, y)
+
+				var i int
+				for i = 0; i < params.MaxIterations; i++ {
+					if cmplx.Abs(z) > 2 {
+						break
+					}
+					z = z*z + c
 				}
-			}(tileX, tileY)
-		}
+
+				if i < params.MaxIterations {
+					rgba := ReturnRGBA(params.Coloring, i, params.MaxIterations, z, px, py)
+					img.Set(px, py, rgba)
+				} else {
+					img.Set(px, py, color.Black)
+				}
+			}
+		}(py)
 	}
 	wg.Wait()
-	close(modifiedTiles)
 
-	go cleanupCache(params)
-}
-
-func encodeTile(tile *Tile) (TileMessage, error) {
-	var buf bytes.Buffer
-	err := png.Encode(&buf, tile.Image)
-	if err != nil {
-		return TileMessage{}, err
-	}
-	return TileMessage{
-		X:    tile.X,
-		Y:    tile.Y,
-		Zoom: tile.Zoom,
-		Data: base64.StdEncoding.EncodeToString(buf.Bytes()),
-	}, nil
+	return img
 }
 
 func wsHandler(w http.ResponseWriter, r *http.Request) {
@@ -194,18 +97,20 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		modifiedTiles := make(chan *Tile, 100)
-		go generateJuliaSet(params, modifiedTiles)
+		img := generateJuliaSet(params)
 
-		for tile := range modifiedTiles {
-			tileMsg, err := encodeTile(tile)
-			if err != nil {
-				continue
-			}
-			err = conn.WriteJSON(tileMsg)
-			if err != nil {
-				return
-			}
+		var buf bytes.Buffer
+		err = png.Encode(&buf, img)
+		if err != nil {
+			log.Printf("Error encoding PNG: %v", err)
+			return
+		}
+
+		base64Image := base64.StdEncoding.EncodeToString(buf.Bytes())
+		err = conn.WriteJSON(map[string]string{"image": base64Image})
+		if err != nil {
+			log.Printf("Error sending image: %v", err)
+			return
 		}
 	}
 }
@@ -218,36 +123,15 @@ func juliaHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	modifiedTiles := make(chan *Tile, 100)
-	go generateJuliaSet(params, modifiedTiles)
-
-	fullImage := image.NewRGBA(image.Rect(0, 0, params.Width, params.Height))
-	for tile := range modifiedTiles {
-		draw.Draw(fullImage, image.Rect(tile.X*TileSize, tile.Y*TileSize, (tile.X+1)*TileSize, (tile.Y+1)*TileSize),
-			tile.Image, image.Point{}, draw.Over)
-	}
+	img := generateJuliaSet(params)
 
 	w.Header().Set("Content-Type", "image/png")
-	png.Encode(w, fullImage)
-
-	// // Save the image locally
-	// currentTime := time.Now()
-	// dateTimeStr := currentTime.Format("020120061504")
-	// filename := "julia" + dateTimeStr + ".png"
-	// outFile, err := os.Create(filename)
-	// if err != nil {
-	// 	log.Println("Error creating file:", err)
-	// 	return
-	// }
-	// defer outFile.Close()
-	// err = png.Encode(outFile, fullImage)
-	// if err != nil {
-	// 	log.Println("Error encoding PNG:", err)
-	// }
+	png.Encode(w, img)
 }
 
 func main() {
 	http.HandleFunc("/ws", wsHandler)
 	http.HandleFunc("/julia", juliaHandler)
+	fmt.Println("Server is running on :8080")
 	http.ListenAndServe(":8080", nil)
 }
