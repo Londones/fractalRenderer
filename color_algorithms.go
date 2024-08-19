@@ -15,10 +15,10 @@ func SmoothColorHSV(i, maxIterations int, z complex128) color.RGBA {
 
 	smoothColor := float64(i) - math.Log(math.Log(cmplx.Abs(z)))/math.Log(2)
 	hue := math.Sin(smoothColor * 0.1)
-	saturation := 0.8 + 0.2*math.Cos(smoothColor*0.1)
-	value := 1.0 - math.Pow(float64(i)/float64(maxIterations), 0.3)
+	//saturation := 0.8 + 0.2*math.Cos(smoothColor*0.1)
+	//value := 1.0 - math.Pow(float64(i)/float64(maxIterations), 0.1)
 
-	c := colorful.Hsv(hue*360, saturation, value)
+	c := colorful.Hsv(hue*360, 0.8, 1.0)
 	r, g, b := c.RGB255()
 	return color.RGBA{r, g, b, 255}
 }
@@ -192,6 +192,31 @@ func MixMultipleAlgorithms(i, maxIterations int, z complex128) color.RGBA {
 	return color.RGBA{r, g, b, 255}
 }
 
+func createGreyPalette() []int {
+	palette := make([]int, 256)
+	for i := 0; i < 256; i++ {
+		palette[i] = int(uint8(i + 512 - 512*int(math.Exp(-float64(i)/50))/3))
+		palette[i] = palette[i]<<16 | palette[i]<<8 | palette[i]
+	}
+	palette[255] = 0
+	return palette
+}
+
+var greyPalette = createGreyPalette()
+
+func GreyPalette(i, maxIterations int, z complex128) color.RGBA {
+	if i == maxIterations {
+		return color.RGBA{0, 0, 0, 255}
+	}
+	colorInt := greyPalette[i%256]
+	return color.RGBA{
+		uint8(colorInt & 0xFF),
+		uint8((colorInt >> 8) & 0xFF),
+		uint8((colorInt >> 16) & 0xFF),
+		255,
+	}
+}
+
 func ReturnRGBA(coloring int, i int, maxIterations int, z complex128, x int, y int) color.RGBA {
 	switch coloring {
 	case 1:
@@ -213,8 +238,10 @@ func ReturnRGBA(coloring int, i int, maxIterations int, z complex128, x int, y i
 	case 9:
 		return MoltenLava(i, maxIterations, z)
 	case 10:
-		return AlternateAlgorithms(i, maxIterations, z, x, y)
+		return GreyPalette(i, maxIterations, z)
 	case 11:
+		return AlternateAlgorithms(i, maxIterations, z, x, y)
+	case 12:
 		return MixMultipleAlgorithms(i, maxIterations, z)
 	default:
 		return SmoothColorHSV(i, maxIterations, z)
